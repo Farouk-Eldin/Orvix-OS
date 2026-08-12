@@ -1,0 +1,2031 @@
+// ============================================================
+// SmartDesk AI — Prisma Schema
+// PostgreSQL stores relational data + metadata only.
+// Vector embeddings live in Qdrant — see Embedding model below,
+// which stores a pointer (qdrantPointId), never the vector itself.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ------------------------------------------------------------
+// Enums
+// ------------------------------------------------------------
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum SubscriptionPlan {
+  FREE
+  PRO
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  EXPIRED
+  CANCELLED
+}
+
+/// Reserves identifiers for providers not yet implemented (OpenAI, Claude,
+/// DeepSeek) so the Provider Router can support them later without a schema
+/// change — only Gemini and Grok have a real AIProvider implementation today.
+enum AiProviderName {
+  GEMINI
+  GROK
+  OPENAI
+  CLAUDE
+  DEEPSEEK
+}
+
+enum AiPersonality {
+  PROFESSIONAL
+  FRIENDLY
+  LUXURY
+  MEDICAL
+  SALES
+  SUPPORT
+  MINIMAL
+}
+
+enum AiLanguageMode {
+  AR
+  EN
+  AUTO
+}
+
+enum ReplyLength {
+  SHORT
+  DETAILED
+}
+
+enum KnowledgeBaseStatus {
+  EMPTY
+  PROCESSING
+  READY
+  FAILED
+}
+
+/// MANUAL covers the rich-text "Manual Text" tab — it flows through the same
+/// KnowledgeFile → KnowledgeChunk → Embedding pipeline as uploaded files so
+/// retrieval doesn't need a second code path. Version history for manual
+/// entries is added in Phase 6 alongside the rest of the Knowledge Base UI.
+enum KnowledgeFileType {
+  PDF
+  TXT
+  MANUAL
+}
+
+enum ProcessingStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum ChannelType {
+  WHATSAPP
+  FACEBOOK
+  INSTAGRAM
+}
+
+enum ChannelConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  TOKEN_EXPIRED
+}
+
+enum ConversationStatus {
+  ACTIVE
+  RESOLVED
+  PENDING_INFO
+}
+
+/// Only CUSTOMER and AI — the product has no human agents or handoff.
+enum MessageSender {
+  CUSTOMER
+  AI
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  DOCUMENT
+  AUDIO
+}
+
+enum ConfidenceLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum NotificationType {
+  NEW_UPLOAD
+  KNOWLEDGE_READY
+  CHANNEL_CONNECTED
+  SUBSCRIPTION_EXPIRING
+  AI_ERROR
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  NEW_SUPPORT_TICKET
+  SUPPORT_TICKET_REPLY
+  BROADCAST_ANNOUNCEMENT
+  SYSTEM
+}
+
+enum WebhookProvider {
+  WHATSAPP
+  FACEBOOK
+  INSTAGRAM
+  PAYMOB
+  CLERK
+}
+
+enum WebhookStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+  DUPLICATE
+}
+
+enum QueueStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  RETRYING
+  CANCELLED
+}
+
+enum QueueStep {
+  EXTRACT
+  CLEAN
+  CHUNK
+  EMBED
+  STORE
+}
+
+enum EmailType {
+  WELCOME
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  SUBSCRIPTION_EXPIRING
+  SUBSCRIPTION_EXPIRED
+  KNOWLEDGE_PROCESSING_FINISHED
+  SUPPORT_TICKET_CREATED
+  SUPPORT_TICKET_REPLY
+  BROADCAST_ANNOUNCEMENT
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  VISA
+  MASTERCARD
+  MEEZA
+  VODAFONE_CASH
+  ORANGE_CASH
+  ETISALAT_CASH
+}
+
+enum SystemService {
+  DATABASE
+  REDIS
+  QDRANT
+  STORAGE
+  GEMINI
+  GROK
+  QUEUE
+  WEBHOOKS
+}
+
+enum SystemStatus {
+  ONLINE
+  DEGRADED
+  OFFLINE
+}
+
+// ------------------------------------------------------------
+// Identity & Workspace
+// ------------------------------------------------------------
+
+model Workspace {
+  id           String  @id @default(uuid())
+  name         String
+  slug         String  @unique
+  logo         String?
+  country      String
+  businessType String
+  suspended    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users                User[]
+  teamMembers          TeamMember[]
+  subscription         Subscription?
+  aiProviders          AIProvider[]
+  aiEmployees          AIEmployee[]
+  knowledgeBases       KnowledgeBase[]
+  conversations        Conversation[]
+  conversationSessions ConversationSession[]
+  customers            Customer[]
+  whatsappAccount      WhatsAppAccount?
+  facebookPage         FacebookPage?
+  instagramAccount     InstagramAccount?
+  promptTemplates      PromptTemplate[]
+  analytics            Analytics[]
+  usage                Usage[]
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  webhookLogs          WebhookLog[]
+  fileProcessingQueue  FileProcessingQueue[]
+  emailLogs            EmailLog[]
+  paymentLogs          PaymentLog[]
+
+  resources             Resource[]
+  services              Service[]
+  bookings              Booking[]
+  defaultWorkingHours   Json?
+  features              WorkspaceFeature[]
+  leads                 Lead[]
+  workflows             Workflow[]
+  apiKeys               ApiKey[]
+  webhookSubscriptions  WebhookSubscription[]
+  couponRedemptions     CouponRedemption[]
+  creditTransactions    CreditTransaction[]
+  npsResponses          NpsResponse[]
+  referral              Referral?
+  promptExperiments     PromptExperiment[]
+  customDomain          CustomDomain?
+  customerNotes         CustomerNote[]
+  primaryColor          String?
+  secondaryColor        String?
+  favicon               String?
+  customCss             String?               @db.Text
+  workflowTemplates     WorkflowTemplate[]
+  marketplaceApps       MarketplaceApp[]
+  marketplaceInstalls   MarketplaceInstall[]
+  supportTickets        SupportTicket[]
+  tasks                 Task[]
+  oauthConnections      OAuthConnection[]
+  branches              Branch[]
+  featureRequests       FeatureRequest[]
+  featureRequestVotes   FeatureRequestVote[]
+
+  @@index([slug])
+}
+
+/// role is a denormalized mirror of the user's TeamMember.role in their
+/// primary workspace, kept for cheap access-control checks without a join.
+/// TeamMember stays the source of truth for multi-workspace membership.
+model User {
+  id       String  @id @default(uuid())
+  clerkId  String  @unique
+  name     String
+  email    String  @unique
+  avatar   String?
+  role     WorkspaceRole @default(OWNER)
+  /// Platform-level flag, unrelated to workspace roles — gates /admin only.
+  isSuperAdmin Boolean @default(false)
+  language String  @default("ar")
+  timezone String  @default("Africa/Cairo")
+
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id])
+
+  teamMemberships  TeamMember[]
+  uploadedFiles    KnowledgeFile[]
+  auditLogs        AuditLog[]
+
+  promptVersionsCreated   PromptVersion[]
+  authoredNotes           CustomerNote[]
+  assignedCustomers       Customer[]
+  assignedLeads           Lead[]
+  reviewedAppVersions     MarketplaceAppVersion[]
+  platformSettingsUpdated PlatformSetting[]
+
+  ticketsCreated          SupportTicket[]        @relation("TicketsCreatedByUser")
+  ticketsAssigned         SupportTicket[]        @relation("TicketsAssignedToAdmin")
+  ticketMessagesAuthored  SupportTicketMessage[]  @relation("TicketMessagesAuthored")
+  tasksAssigned           Task[]
+  publishedWorkflowVersions WorkflowVersion[]
+  oauthConnections        OAuthConnection[]
+  featureRequestsSubmitted FeatureRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([email])
+}
+
+model TeamMember {
+  id          String        @id @default(uuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        WorkspaceRole @default(MEMBER)
+  permissions Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+}
+
+// ------------------------------------------------------------
+// Subscription & Billing
+// ------------------------------------------------------------
+
+model Subscription {
+  id          String             @id @default(uuid())
+  workspaceId String             @unique
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  plan        SubscriptionPlan   @default(FREE)
+  status      SubscriptionStatus @default(TRIALING)
+  trialEndsAt DateTime?
+  renewAt     DateTime?
+  messagesLimit Int              @default(10)
+  messagesUsed  Int              @default(0)
+
+  paymentLogs PaymentLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+model PaymentLog {
+  id             String         @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  subscriptionId String?
+  subscription   Subscription?  @relation(fields: [subscriptionId], references: [id])
+  provider       String         @default("paymob")
+  amount         Decimal        @db.Decimal(10, 2)
+  currency       String         @default("EGP")
+  status         PaymentStatus  @default(PENDING)
+  paymentMethod  PaymentMethod?
+  transactionId  String?
+  invoiceNumber  String?        @unique
+  paymobOrderId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([status])
+}
+
+// ------------------------------------------------------------
+// AI Employee, Providers & Prompting
+// ------------------------------------------------------------
+
+model AIEmployee {
+  id                  String         @id @default(uuid())
+  workspaceId         String
+  workspace           Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role                EmployeeRole   @default(GENERAL)
+  isDefault           Boolean        @default(true)
+  canManageBookings   Boolean        @default(true)
+  name                String
+  avatar              String?
+  personality         AiPersonality  @default(PROFESSIONAL)
+  tone                String         @default("ودود ومحترف")
+  language            AiLanguageMode @default(AUTO)
+  replyLength         ReplyLength    @default(DETAILED)
+  emojiUsage          Boolean        @default(false)
+  welcomeMessage      String
+  businessDescription String
+  systemInstructions  String
+
+  promptVersions    PromptVersion[]
+  promptExperiments PromptExperiment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, isDefault])
+}
+
+model AIProvider {
+  id              String          @id @default(uuid())
+  workspaceId     String
+  workspace       Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  provider        AiProviderName
+  apiKeyEncrypted String
+  defaultModel    String
+  enabled         Boolean         @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([workspaceId, provider])
+  @@index([workspaceId])
+}
+
+model PromptTemplate {
+  id           String    @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name         String
+  systemPrompt String
+  temperature  Float     @default(0.7)
+  enabled      Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+// ------------------------------------------------------------
+// Knowledge Base & RAG
+// ------------------------------------------------------------
+
+model KnowledgeBase {
+  id          String              @id @default(uuid())
+  workspaceId String
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  status      KnowledgeBaseStatus @default(EMPTY)
+
+  files KnowledgeFile[]
+  faqs  KnowledgeFAQ[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+model KnowledgeFAQ {
+  id              String        @id @default(uuid())
+  knowledgeBaseId String
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  question        String
+  answer          String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([knowledgeBaseId])
+}
+
+model KnowledgeFile {
+  id                String            @id @default(uuid())
+  knowledgeBaseId   String
+  knowledgeBase     KnowledgeBase     @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  fileName          String
+  fileType          KnowledgeFileType
+  fileSize          Int
+  storagePath       String
+  processingStatus  ProcessingStatus  @default(PENDING)
+  uploadedBy        String
+  uploader          User              @relation(fields: [uploadedBy], references: [id])
+
+  chunks       KnowledgeChunk[]
+  queueEntries FileProcessingQueue[]
+
+  createdAt DateTime @default(now())
+
+  @@index([knowledgeBaseId])
+  @@index([processingStatus])
+}
+
+model KnowledgeChunk {
+  id         String        @id @default(uuid())
+  fileId     String
+  file       KnowledgeFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  chunkIndex Int
+  content    String
+  tokenCount Int
+
+  embedding Embedding?
+
+  createdAt DateTime @default(now())
+
+  @@index([fileId])
+}
+
+/// PostgreSQL never stores the vector itself (see correction: "Never store
+/// embeddings inside PostgreSQL. Use Qdrant."). qdrantPointId is the only
+/// link between a chunk and its vector.
+model Embedding {
+  id             String         @id @default(uuid())
+  chunkId        String         @unique
+  chunk          KnowledgeChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  provider       AiProviderName
+  qdrantPointId  String         @unique
+  dimensions     Int
+
+  createdAt DateTime @default(now())
+}
+
+// ------------------------------------------------------------
+// Conversations & Customers
+// ------------------------------------------------------------
+
+model Customer {
+  id            String   @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name          String?
+  phone         String?
+  email         String?
+  facebookId    String?
+  instagramId   String?
+  avatar        String?
+  notes         String?
+
+  conversations Conversation[]
+
+  gender         String?
+  birthDate      DateTime?
+  company        String?
+  tags           String[]       @default([])
+  status         CustomerStatus @default(ACTIVE)
+  source         String?
+  assignedUserId String?
+  assignedUser   User?          @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+  language       String         @default("ar")
+  country        String?
+  city           String?
+  timezone       String?
+  crmNotes       CustomerNote[]
+  bookings       Booking[]
+  convertedFromLead Lead?
+  tasks          Task[]
+
+  /// Refreshed asynchronously after replies by customer-memory.service.ts — never written on the live reply path.
+  aiSummary          String?   @db.Text
+  aiSummaryUpdatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([phone])
+  @@index([facebookId])
+  @@index([instagramId])
+}
+
+model Conversation {
+  id            String              @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel       ChannelType
+  customerId    String
+  customer      Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  status        ConversationStatus  @default(ACTIVE)
+  lastMessageAt DateTime?
+  deletedAt     DateTime?
+
+  messages Message[]
+  session  ConversationSession?
+  promptExperimentAssignment PromptExperimentAssignment?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([customerId])
+  @@index([status])
+  @@index([channel])
+}
+
+model Message {
+  id               String           @id @default(uuid())
+  conversationId   String
+  conversation     Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender           MessageSender
+  messageType      MessageType      @default(TEXT)
+  content          String
+  attachments      Json?
+  aiGenerated      Boolean          @default(false)
+  confidenceScore  ConfidenceLevel?
+  responseTimeMs   Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+/// Rolling memory for a conversation — summary + extracted facts the AI
+/// engine feeds back into the prompt builder so context survives across
+/// messages without re-sending full history every time.
+model ConversationSession {
+  id             String       @id @default(uuid())
+  conversationId String       @unique
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  workspaceId    String
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  summary        String?
+  context        Json?
+  deletedAt      DateTime?
+
+  createdAt    DateTime @default(now())
+  lastUpdated  DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+// ------------------------------------------------------------
+// Channels
+// ------------------------------------------------------------
+
+model WhatsAppAccount {
+  id                String                   @id @default(uuid())
+  workspaceId       String                   @unique
+  workspace         Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  phoneNumber       String
+  phoneNumberId     String                   @unique
+  businessAccountId String                   @unique
+  accessToken       String
+  status            ChannelConnectionStatus  @default(DISCONNECTED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FacebookPage {
+  id          String                  @id @default(uuid())
+  workspaceId String                  @unique
+  workspace   Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  pageId      String                  @unique
+  pageName    String
+  accessToken String
+  status      ChannelConnectionStatus @default(DISCONNECTED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model InstagramAccount {
+  id           String                  @id @default(uuid())
+  workspaceId  String                  @unique
+  workspace    Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  instagramId  String                  @unique
+  username     String
+  accessToken  String
+  status       ChannelConnectionStatus @default(DISCONNECTED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ------------------------------------------------------------
+// Analytics & Usage
+// ------------------------------------------------------------
+
+model Analytics {
+  id            String    @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  date          DateTime
+  messages      Int       @default(0)
+  aiReplies     Int       @default(0)
+  responseTime  Float?
+  knowledgeHits Int       @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([workspaceId, date])
+  @@index([workspaceId])
+}
+
+model Usage {
+  id           String    @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  date         DateTime
+  messagesUsed Int       @default(0)
+  aiTokens     Int       @default(0)
+  inputTokens  Int       @default(0)
+  outputTokens Int       @default(0)
+  storageUsed  Int       @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([workspaceId, date])
+  @@index([workspaceId])
+}
+
+// ------------------------------------------------------------
+// Notifications, Audit & Observability
+// ------------------------------------------------------------
+
+model Notification {
+  id          String           @id @default(uuid())
+  workspaceId String
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String
+  body        String
+  type        NotificationType
+  read        Boolean          @default(false)
+  /// Optional structured payload (e.g. { ticketId } ) so the UI can deep-link — never required, existing rows read fine as null.
+  data        Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([read])
+}
+
+model AuditLog {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String
+  ip          String?
+  device      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([createdAt])
+}
+
+model WebhookLog {
+  id          String          @id @default(uuid())
+  workspaceId String?
+  workspace   Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  provider    WebhookProvider
+  payload     Json
+  status      WebhookStatus   @default(RECEIVED)
+  response    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([provider])
+  @@index([status])
+}
+
+model FileProcessingQueue {
+  id          String        @id @default(uuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  fileId      String
+  file        KnowledgeFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  status      QueueStatus   @default(PENDING)
+  step        QueueStep
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([fileId])
+}
+
+model EmailLog {
+  id             String      @id @default(uuid())
+  workspaceId    String?
+  workspace      Workspace?  @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  recipientEmail String
+  type           EmailType
+  status         EmailStatus @default(PENDING)
+  resendId       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([type])
+}
+
+/// Not workspace-scoped — this is platform-wide infrastructure health,
+/// consumed by the Admin Panel (Phase 10) and the dashboard status widget.
+model SystemHealth {
+  id             String        @id @default(uuid())
+  service        SystemService
+  status         SystemStatus
+  responseTimeMs Int?
+  message        String?
+
+  createdAt     DateTime @default(now())
+  lastCheckedAt DateTime @default(now())
+
+  @@index([service, lastCheckedAt])
+}
+
+// ============================================================
+// APPENDED MODELS — Orvix OS Phase 2 (all 8 parts + updates)
+// ============================================================
+
+// PROPOSAL — modifies AIEmployee in schema.prisma (not yet applied)
+//
+// Backward-compat plan, since AIEmployee.workspaceId is currently
+// @unique (real one-per-workspace constraint right now):
+//   1. Add the new fields below with defaults that reproduce today's
+//      behavior exactly (role=GENERAL, isDefault=true,
+//      canManageBookings=true).
+//   2. Drop @unique from workspaceId, keep it as a plain @@index.
+//   3. Existing rows need no data migration — every workspace's one
+//      existing employee becomes its "default" employee for free,
+//      because isDefault defaults to true and there's only one row
+//      per workspace anyway at migration time.
+//   4. The OLD singular route (/api/v1/ai/employee) is kept working
+//      unchanged for any existing frontend — see the two updated route
+//      files below. Multiple employees are additive, not a breaking
+//      change to what already ships.
+
+enum EmployeeRole {
+  GENERAL // today's default — one employee doing everything
+  SUPPORT
+  SALES
+  RECEPTIONIST
+  BOOKING
+  MARKETING
+  FINANCE
+  CRM
+  ANALYTICS
+  KNOWLEDGE_MANAGER
+}
+
+// Diff against the existing model:
+//
+// model AIEmployee {
+//   id                  String         @id @default(uuid())
+//   workspaceId         String         // <- @unique REMOVED
+//   workspace           Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+//   role                EmployeeRole   @default(GENERAL)   // NEW
+//   isDefault           Boolean        @default(true)      // NEW — handles channel auto-replies when no per-employee routing exists yet
+//   canManageBookings   Boolean        @default(true)      // NEW — employee-level permission, separate from the workspace-level Feature Registry gate
+//   name                String
+//   avatar              String?
+//   personality         AiPersonality  @default(PROFESSIONAL)
+//   tone                String         @default("ودود ومحترف")
+//   language            AiLanguageMode @default(AUTO)
+//   replyLength         ReplyLength    @default(DETAILED)
+//   emojiUsage          Boolean        @default(false)
+//   welcomeMessage      String
+//   businessDescription String
+//   systemInstructions  String
+//
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//
+//   @@index([workspaceId])                    // NEW — replaces the old @unique
+//   @@index([workspaceId, isDefault])         // NEW — the lookup generateAiReply does on every message
+// }
+//
+// ============================================================
+// ⚠️ REQUIRED companion change — checked against the real repo,
+// not theoretical. Workspace's back-relation is currently:
+//
+//   aiEmployee  AIEmployee?
+//
+// One-to-one, since AIEmployee.workspaceId used to be @unique. It
+// MUST become:
+//
+//   aiEmployees  AIEmployee[]
+//
+// This is a breaking rename (aiEmployee -> aiEmployees, singular ->
+// array), and grepping the real codebase found exactly THREE places
+// that read the old singular shape. All three need this same-session
+// fix, or the build breaks:
+//
+//   1. lib/repositories/workspace.repository.ts — findWithEssentials()
+//      currently does `include: { ..., aiEmployee: true, ... }`.
+//      Change to:
+//        aiEmployees: { where: { isDefault: true }, take: 1 }
+//      (fetches just the default employee, as an array of 0-1 —
+//      cheaper than fetching every employee when only one is needed here)
+//
+//   2. features/dashboard/services/dashboard.service.ts — reads
+//      `workspace?.aiEmployee` directly. Change to:
+//        const defaultEmployee = workspace?.aiEmployees?.[0];
+//        ...
+//        aiEmployee: defaultEmployee
+//          ? { name: defaultEmployee.name, personality: defaultEmployee.personality }
+//          : null,
+//      Note the RETURNED object's own key stays "aiEmployee" (singular)
+//      — this function is the adapter layer, so nothing downstream needs
+//      to change.
+//
+//   3. features/dashboard/components/system-health-card.tsx — reads
+//      `data?.aiEmployee?.name`. NO CHANGE NEEDED — it consumes
+//      dashboard.service.ts's returned shape (fix #2 above), not the
+//      Prisma relation directly, and that returned shape is unchanged.
+// ============================================================
+
+// ============================================================
+// PROPOSAL — universal booking core (not yet applied)
+// Generalizes Phase 2 Part 2 + the "Appointment Setup" update so
+// booking works for ANY business type, not just clinics.
+//
+// Key decision: there is no "Doctor" model. A Resource is
+// whatever gets booked — a doctor, a table, a room, a stylist,
+// a consultant. Workspace.businessType (already in your schema)
+// only drives labels / AI prompt wording — it never shapes the
+// data model itself.
+//
+// Conventions matched to your existing schema.prisma:
+// uuid() ids, workspaceId + onDelete: Cascade, createdAt/updatedAt,
+// @@index on foreign keys and hot lookup paths.
+// ============================================================
+
+enum ResourceKind {
+  PERSON  // doctor, stylist, consultant, therapist...
+  SPACE   // table, room, court...
+  ASSET   // equipment, vehicle...
+  GENERIC // no meaningful resource split — AI falls back to workspace hours
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Service {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  durationMin Int
+  price       Decimal?  @db.Decimal(10, 2)
+  isActive    Boolean   @default(true)
+
+  resources Resource[] @relation("ResourceServices")
+  bookings  Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+model Resource {
+  id           String       @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  branchId     String?
+  branch       Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  kind         ResourceKind @default(GENERIC)
+  name         String       // "Dr. Ahmed", "Table 4", "Room A"...
+  workingHours Json         // same shape regardless of kind
+  maxPerSlot   Int          @default(1)
+  isActive     Boolean      @default(true)
+
+  services Service[] @relation("ResourceServices")
+  bookings Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([branchId])
+}
+
+/// A workspace with no branches at all is the common case (single-location
+/// business) and needs nothing here — Resource.branchId stays null and
+/// everything behaves exactly as before. Branches are additive, not a
+/// migration every existing workspace has to go through.
+model Branch {
+  id          String  @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  name         String
+  address      String?
+  phone        String?
+  workingHours Json?
+  isActive     Boolean @default(true)
+
+  resources Resource[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+model Booking {
+  id          String        @id @default(uuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  serviceId   String
+  service     Service       @relation(fields: [serviceId], references: [id])
+  resourceId  String?
+  resource    Resource?     @relation(fields: [resourceId], references: [id])
+  channel     ChannelType   // reuses your existing enum — no duplication
+  status      BookingStatus @default(PENDING)
+  startAt     DateTime
+  endAt       DateTime
+  notes       String?
+  createdByAI Boolean       @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([customerId])
+  @@index([resourceId, startAt])
+  @@index([status])
+}
+
+// ------------------------------------------------------------
+// Back-relations to add to your existing models:
+//
+// model Workspace {
+//   ...
+//   resources           Resource[]
+//   services            Service[]
+//   bookings            Booking[]
+//   defaultWorkingHours Json?     // fallback when a Service has zero Resources —
+//                                 // covers doc requirement: "if there are no
+//                                 // doctors, the AI must use business hours"
+// }
+//
+// model Customer {
+//   ...
+//   bookings Booking[]
+// }
+// ------------------------------------------------------------
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+model Coupon {
+  id              String       @id @default(uuid())
+  code            String       @unique
+  discountType    DiscountType
+  discountValue   Decimal      @db.Decimal(10, 2) // percent (0-100) or EGP amount, per discountType
+  maxUses         Int?          // null = unlimited
+  usesCount       Int          @default(0)
+  maxUsesPerUser  Int          @default(1)
+  expiresAt       DateTime?
+  active          Boolean      @default(true)
+
+  redemptions CouponRedemption[]
+
+  createdAt DateTime @default(now())
+
+  @@index([code])
+}
+
+model CouponRedemption {
+  id          String    @id @default(uuid())
+  couponId    String
+  coupon      Coupon    @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([couponId])
+  @@index([workspaceId])
+}
+
+// Back-relation to add:
+// model Workspace { ... couponRedemptions CouponRedemption[] }
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+//
+// Ledger, not a counter: CreditTransaction rows are the source of
+// truth, balance = sum(amount). A mutable `balance Int` field on
+// Workspace would need to stay perfectly in sync with every grant/spend
+// forever — one missed update anywhere and it silently drifts. Summing
+// the ledger can never drift, at the cost of one aggregate query per
+// balance check (cheap, and cacheable later if it ever needs to be).
+
+enum CreditReason {
+  REFERRAL_BONUS
+  ADMIN_GRANT
+  LOYALTY_MILESTONE
+  AI_MESSAGE_SPEND
+  EXTRA_STORAGE_SPEND
+}
+
+model CreditTransaction {
+  id          String       @id @default(uuid())
+  workspaceId String
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  amount      Int          // positive = grant, negative = spend
+  reason      CreditReason
+  note        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+// Back-relation to add:
+// model Workspace { ... creditTransactions CreditTransaction[] }
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+// CRM core: Customer enrichment + structured notes.
+//
+// Your existing `Customer.notes String?` field is left alone on purpose
+// — no auto-migration of old free-text notes into CustomerNote rows.
+// That's a one-time data decision worth making deliberately, not
+// something to guess at here.
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+enum NoteVisibility {
+  PRIVATE // author only
+  INTERNAL // whole team
+}
+
+model CustomerNote {
+  id          String         @id @default(uuid())
+  workspaceId String
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  authorId    String?
+  author      User?          @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  content     String
+  visibility  NoteVisibility @default(INTERNAL)
+  pinned      Boolean        @default(false)
+  createdByAI Boolean        @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([customerId])
+}
+
+// Additive fields for the existing Customer model:
+//
+// model Customer {
+//   ...
+//   gender         String?
+//   birthDate      DateTime?
+//   tags           String[]       @default([])
+//   status         CustomerStatus @default(ACTIVE)
+//   source         String?        // "whatsapp", "referral", "walk-in"...
+//   assignedUserId String?
+//   assignedUser   User?          @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+//   language       String         @default("ar")
+//   country        String?
+//   city           String?
+//   timezone       String?
+//   crmNotes       CustomerNote[]
+// }
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+//
+// WebhookSubscription/WebhookDelivery are deliberately separate from
+// the existing WebhookLog model — that one logs INBOUND webhooks FROM
+// providers (WhatsApp/Facebook/Instagram/Paymob/Clerk). This is the
+// opposite direction: OUTBOUND events TO a workspace's own endpoints.
+// Confirmed no overlap before naming these.
+
+model ApiKey {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  keyPrefix   String    // "ovx_live_ab12" — safe to display forever
+  hashedKey   String    @unique // sha256 of the full key; the full key itself is never stored
+  permissions String[]  @default([]) // "customers:read", "bookings:write"...
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+enum WebhookEvent {
+  CUSTOMER_CREATED
+  BOOKING_CREATED
+  BOOKING_STATUS_CHANGED
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  SUPPORT_TICKET_CREATED
+  SUPPORT_TICKET_CLOSED
+  KNOWLEDGE_UPLOADED
+  SUBSCRIPTION_ACTIVATED
+}
+
+enum DeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
+model WebhookSubscription {
+  id          String         @id @default(uuid())
+  workspaceId String
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  endpointUrl String
+  secret      String // used to HMAC-sign the payload — see the delivery service
+  events      WebhookEvent[]
+  active      Boolean        @default(true)
+
+  deliveries WebhookDelivery[]
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+model WebhookDelivery {
+  id             String              @id @default(uuid())
+  subscriptionId String
+  subscription   WebhookSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  event          WebhookEvent
+  payload        Json
+  status         DeliveryStatus      @default(PENDING)
+  responseCode   Int?
+  attempt        Int                 @default(1)
+
+  createdAt DateTime @default(now())
+
+  @@index([subscriptionId])
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+/// Support Center: the workspace owner/team talking to Orvix's own
+/// support team about the platform itself — separate from `Conversation`,
+/// which is the business's AI talking to ITS OWN end customers.
+model SupportTicket {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  createdByUserId String
+  createdBy       User   @relation("TicketsCreatedByUser", fields: [createdByUserId], references: [id])
+
+  assignedAdminId String?
+  assignedAdmin   User?  @relation("TicketsAssignedToAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+
+  subject  String
+  category String?
+
+  status   TicketStatus   @default(OPEN)
+  priority TicketPriority @default(MEDIUM)
+
+  messages      SupportTicketMessage[]
+  lastMessageAt DateTime                @default(now())
+  closedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([assignedAdminId])
+  @@index([workspaceId, status])
+}
+
+model SupportTicketMessage {
+  id       String        @id @default(uuid())
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  authorUserId String
+  author       User    @relation("TicketMessagesAuthored", fields: [authorUserId], references: [id])
+
+  body           String  @db.Text
+  /// Admin-only note, never visible on the workspace side of the thread.
+  isInternalNote Boolean @default(false)
+  attachmentUrl  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+enum TaskStatus {
+  PENDING
+  DONE
+}
+
+model Task {
+  id          String     @id @default(uuid())
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  title       String
+  status      TaskStatus @default(PENDING)
+  dueAt       DateTime?
+
+  relatedCustomerId String?
+  relatedCustomer   Customer? @relation(fields: [relatedCustomerId], references: [id], onDelete: SetNull)
+
+  assignedToUserId String?
+  assignedTo       User?   @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  /// True when an AI employee created this (e.g. "follow up — asked about pricing, didn't book") rather than a human.
+  createdByAI Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, status])
+  @@index([relatedCustomerId])
+}
+
+/// One row per publish. Rollback restores an old snapshot as the live graph AND records that restoration as a new version — never a silent rewrite of history, same rule as PromptVersion.
+model WorkflowVersion {
+  id         String   @id @default(uuid())
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  versionNumber Int
+  name          String
+  nodesSnapshot Json
+  edgesSnapshot Json
+
+  publishedByUserId String?
+  publishedBy       User?   @relation(fields: [publishedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([workflowId])
+}
+
+enum OAuthProviderName {
+  GOOGLE_CALENDAR
+}
+
+/// Generic OAuth2 connection store — one row per (workspace, provider).
+/// Adding a new provider later is: one value here, one provider file
+/// under lib/oauth/providers/, same extensibility shape as AIProvider
+/// and PaymentProvider.
+model OAuthConnection {
+  id          String            @id @default(uuid())
+  workspaceId String
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  provider    OAuthProviderName
+
+  accessTokenEncrypted  String    @db.Text
+  refreshTokenEncrypted String?   @db.Text
+  expiresAt             DateTime?
+  scope                 String?
+  externalAccountLabel  String?
+
+  connectedByUserId String?
+  connectedBy       User?   @relation(fields: [connectedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([workspaceId, provider])
+  @@index([workspaceId])
+}
+
+enum WithdrawalMethod {
+  VODAFONE_CASH
+  BANK_TRANSFER
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+}
+
+/// Balance is computed on read (converted referrals × commission rate,
+/// minus non-REJECTED withdrawals) rather than stored — same "no
+/// separate number that can drift" rule the credits ledger already
+/// follows, just applied to commissions instead of AI usage credits.
+model Withdrawal {
+  id         String   @id @default(uuid())
+  marketerId String
+  marketer   Marketer @relation(fields: [marketerId], references: [id], onDelete: Cascade)
+
+  amount        Decimal          @db.Decimal(10, 2)
+  method        WithdrawalMethod
+  accountDetails String
+  status        WithdrawalStatus @default(PENDING)
+  adminNote     String?
+
+  requestedAt DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([marketerId])
+  @@index([status])
+}
+
+enum FeatureRequestStatus {
+  PLANNED
+  IN_PROGRESS
+  TESTING
+  RELEASED
+}
+
+/// Platform-wide on purpose — every workspace sees and votes on the same
+/// board, unlike everything else in this schema which is workspace-isolated.
+model FeatureRequest {
+  id                String   @id @default(uuid())
+  workspaceId       String
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  submittedByUserId String
+  submittedBy       User     @relation(fields: [submittedByUserId], references: [id])
+
+  title       String
+  description String               @db.Text
+  status      FeatureRequestStatus @default(PLANNED)
+
+  votes FeatureRequestVote[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+model FeatureRequestVote {
+  id               String         @id @default(uuid())
+  featureRequestId String
+  featureRequest   FeatureRequest @relation(fields: [featureRequestId], references: [id], onDelete: Cascade)
+  workspaceId      String
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  // One vote per workspace per request — not per user, so a business
+  // with several team members doesn't get to out-vote a solo business.
+  @@unique([featureRequestId, workspaceId])
+}
+
+model WorkspaceFeature {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  key         String    // "booking", "crm", "workflow"... — free text for now, on purpose:
+                         // an enum here would mean a migration for every future module,
+                         // which defeats the point of a registry.
+  enabled     Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId])
+}
+
+// Default behavior: a workspace with no row for a given key is treated
+// as enabled (opt-out registry, not opt-in) — so shipping a new module
+// never silently disables it for every existing workspace.
+
+enum PipelineStage {
+  NEW
+  CONTACTED
+  QUALIFIED
+  NEGOTIATION
+  WON
+  LOST
+}
+
+model Lead {
+  id              String        @id @default(uuid())
+  workspaceId     String
+  workspace       Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name            String
+  phone           String?
+  email           String?
+  source          String?
+  stage           PipelineStage @default(NEW)
+  interest        String?
+  probability     Int           @default(0) // 0-100, manual for now — scoring model is a later milestone
+  assignedUserId  String?
+  assignedUser    User?         @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+  nextFollowUpAt  DateTime?
+  convertedCustomerId String?  @unique
+  convertedCustomer   Customer? @relation(fields: [convertedCustomerId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, stage])
+}
+
+// Back-relations to add:
+// model Workspace { ... leads Lead[] }
+// model Customer  { ... convertedFromLead Lead? }
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+//
+// Scope, exactly as decided: Marketplace infrastructure (apps,
+// versions, review policy, installs) is real and complete here.
+// Monetization (commissions, developer payouts, paid installs) is
+// deliberately NOT modeled — no price field, no revenue-share field,
+// no purchase/transaction model. Adding that later is additive (a
+// Purchase model + a price field on MarketplaceAppVersion), not a
+// rework of what's here.
+
+enum MarketplaceAppType {
+  AI_EMPLOYEE
+  INTEGRATION
+  WORKFLOW_TEMPLATE
+  KNOWLEDGE_TEMPLATE
+  THEME
+  REPORT
+  WIDGET
+}
+
+enum AppVersionStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+model MarketplaceApp {
+  id                   String             @id @default(uuid())
+  developerWorkspaceId String
+  developerWorkspace   Workspace          @relation(fields: [developerWorkspaceId], references: [id], onDelete: Cascade)
+  name                 String
+  slug                 String             @unique
+  description          String
+  type                 MarketplaceAppType
+  iconUrl              String?
+  // true once the app has at least one APPROVED version — computed on
+  // approval, not derived on every read, since "is this browsable in
+  // the marketplace" is checked far more often than versions change.
+  isPublished          Boolean            @default(false)
+
+  versions MarketplaceAppVersion[]
+  installs MarketplaceInstall[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([developerWorkspaceId])
+  @@index([type])
+  @@index([isPublished])
+}
+
+model MarketplaceAppVersion {
+  id               String            @id @default(uuid())
+  appId            String
+  app              MarketplaceApp    @relation(fields: [appId], references: [id], onDelete: Cascade)
+  version          String            // e.g. "1.2.0" — free text, not enforced semver, on purpose
+  changelog        String?
+  // Same permission-string convention as ApiKey.permissions elsewhere
+  // in this schema — one shared vocabulary for "what can touch what."
+  permissions      String[]          @default([])
+  manifest         Json              // whatever the app type actually needs to run — kept generic since it varies by MarketplaceAppType
+  status           AppVersionStatus  @default(DRAFT)
+  submittedAt      DateTime?
+  reviewedAt       DateTime?
+  reviewedByUserId String?
+  reviewedBy       User?             @relation(fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewNotes      String?
+  // Recorded at submission time — the exact reason this version needed
+  // (or didn't need) manual review, so the review queue and any later
+  // audit can see the decision's basis, not just its outcome.
+  autoApprovable   Boolean           @default(false)
+
+  installs MarketplaceInstall[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([appId, version])
+  @@index([appId])
+  @@index([status])
+}
+
+model MarketplaceInstall {
+  id          String                @id @default(uuid())
+  appId       String
+  app         MarketplaceApp        @relation(fields: [appId], references: [id], onDelete: Cascade)
+  versionId   String
+  version     MarketplaceAppVersion @relation(fields: [versionId], references: [id])
+  workspaceId String
+  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  installedAt   DateTime  @default(now())
+  uninstalledAt DateTime?
+
+  // One row per (app, workspace) — reinstalling or upgrading updates
+  // this row (new versionId, uninstalledAt cleared) instead of piling
+  // up duplicate install history.
+  @@unique([appId, workspaceId])
+  @@index([workspaceId])
+  @@index([versionId])
+}
+
+// Generic key-value platform settings, editable from the Super Admin
+// dashboard — same reasoning as WorkspaceFeature.key: a fixed schema
+// column per setting would mean a migration for every future toggle.
+model PlatformSetting {
+  id              String   @id @default(uuid())
+  key             String   @unique
+  value           Json
+  updatedByUserId String?
+  updatedBy       User?    @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+// Back-relations to add:
+// model Workspace { ... marketplaceApps MarketplaceApp[]  marketplaceInstalls MarketplaceInstall[] }
+// model User      { ... reviewedAppVersions MarketplaceAppVersion[]  platformSettingsUpdated PlatformSetting[] }
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+
+model NpsResponse {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  score       Int       // 0-10, standard NPS scale
+  comment     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([createdAt])
+}
+
+// Back-relation to add:
+// model Workspace { ... npsResponses NpsResponse[] }
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+// Part 7 spec: "A/B TESTING — Allow testing multiple AI configurations.
+// Prompt A / Prompt B. Measure: Conversion, Booking Rate, Average Response Time."
+//
+// Conversation, not Customer, is the assignment unit — a returning
+// customer keeps hitting the same variant for the life of one
+// conversation, but a brand-new conversation can roll again. This
+// matches how prompt behavior actually shows up: mid-conversation
+// variant switching would make replies inconsistent with earlier turns
+// in the same thread.
+
+enum ExperimentStatus {
+  DRAFT
+  RUNNING
+  COMPLETED
+}
+
+enum PromptVariant {
+  A
+  B
+}
+
+model PromptExperiment {
+  id                  String           @id @default(uuid())
+  workspaceId         String
+  workspace           Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  employeeId          String
+  employee            AIEmployee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  name                String
+  status              ExperimentStatus @default(DRAFT)
+  variantASnapshot    Json             // same shape as PromptVersion.snapshot
+  variantBSnapshot    Json
+  trafficSplitPercent Int              @default(50) // % of new conversations assigned to B
+  winnerVariant       PromptVariant?
+  startedAt           DateTime?
+  endedAt             DateTime?
+
+  assignments PromptExperimentAssignment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([employeeId, status])
+}
+
+model PromptExperimentAssignment {
+  id             String           @id @default(uuid())
+  experimentId   String
+  experiment     PromptExperiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  conversationId String           @unique
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  variant        PromptVariant
+
+  createdAt DateTime @default(now())
+
+  @@index([experimentId])
+}
+
+// Back-relations to add:
+// model Workspace    { ... promptExperiments PromptExperiment[] }
+// model AIEmployee   { ... promptExperiments PromptExperiment[] }
+// model Conversation { ... promptExperimentAssignment PromptExperimentAssignment? }
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+//
+// Snapshot as Json rather than duplicating every AIEmployee prompt field
+// as its own column here — same pattern already used for
+// WorkflowNode.config and TeamMember.permissions elsewhere in this
+// schema. A version row is immutable once written; only new rows get
+// added, by design (see prompt-version.service.ts — rollback creates a
+// new version, it never edits or deletes an old one).
+
+model PromptVersion {
+  id              String     @id @default(uuid())
+  employeeId      String
+  employee        AIEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  versionNumber   Int
+  snapshot        Json       // { personality, tone, language, replyLength, emojiUsage, welcomeMessage, businessDescription, systemInstructions }
+  createdByUserId String?
+  createdBy       User?      @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@unique([employeeId, versionNumber])
+  @@index([employeeId])
+}
+
+// Back-relations to add:
+// model AIEmployee { ... promptVersions PromptVersion[] }
+// model User       { ... promptVersionsCreated PromptVersion[] }
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+//
+// Key decision: no new field on Subscription. It already has
+// `trialEndsAt DateTime?` — defined but never set or read anywhere in
+// the current codebase. That field IS the referral-trial marker:
+// set = 30-day unlimited referral trial, null = standard 10-message
+// trial. See the updated subscription.repository.ts for the read side.
+
+enum MarketerStatus {
+  ACTIVE
+  DISABLED
+}
+
+model Marketer {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  phone         String?
+  status        MarketerStatus @default(ACTIVE)
+  referralCode  String         @unique // "AHMED2026" — validated backend-only, per the doc's security section
+
+  referrals Referral[]
+  withdrawals Withdrawal[]
+
+  createdAt DateTime @default(now())
+
+  @@index([referralCode])
+}
+
+model Referral {
+  id           String    @id @default(uuid())
+  marketerId   String
+  marketer     Marketer  @relation(fields: [marketerId], references: [id], onDelete: Cascade)
+  workspaceId  String    @unique // one workspace can only ever be referred once — enforced here, not just in application code
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  registeredAt DateTime  @default(now())
+  trialEndsAt  DateTime
+  convertedAt  DateTime? // set when the referred workspace becomes a paying subscriber
+
+  @@index([marketerId])
+}
+
+// Back-relation to add:
+// model Workspace { ... referral Referral? }
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+//
+// Scope, stated plainly: branding (logo/colors — logo already exists on
+// Workspace) applies instantly and is fully real. Custom domain is
+// modeled honestly as a verification WORKFLOW, not a fake instant flip
+// to "connected" — actually pointing chat.company.com at this platform
+// needs a real DNS TXT-record check and a real SSL issuance step
+// (Vercel domains API, Cloudflare, or similar), which requires whichever
+// hosting account this gets deployed to. That account doesn't exist
+// from here, so this milestone builds the request/status/verification
+// plumbing up to the point where a real provider API call plugs in —
+// see the one clearly marked TODO in domain-verification.service.ts.
+
+enum DomainStatus {
+  PENDING_DNS
+  VERIFIED
+  FAILED
+}
+
+model CustomDomain {
+  id                String       @id @default(uuid())
+  workspaceId       String       @unique // one custom domain per workspace for now, matching the doc's examples
+  workspace         Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  domain            String       @unique
+  status            DomainStatus @default(PENDING_DNS)
+  verificationToken String       // value the person must put in a TXT record — proves domain control, not just that they typed it in
+  verifiedAt        DateTime?
+  lastCheckedAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+// Additive fields for the existing Workspace model:
+//
+// model Workspace {
+//   ...
+//   primaryColor   String?       // hex, e.g. "#4F46E5" — logo already exists, this is the rest of white-label
+//   secondaryColor String?
+//   favicon        String?
+//   customCss      String?       @db.Text
+//   customDomain   CustomDomain?
+// }
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+//
+// Scope check: no react-flow/@xyflow/reactflow is installed in this
+// project. The visual drag-and-drop canvas from the doc is a separate,
+// large frontend effort that needs one of those as a new dependency
+// first. This milestone is the engine underneath it — real workflows,
+// real execution, driven by JSON for now instead of a canvas. The
+// canvas becomes a thin editor on top of this schema later; nothing
+// here would need to change to add it.
+
+enum WorkflowStatus {
+  DRAFT
+  PUBLISHED
+  DISABLED
+}
+
+enum WorkflowNodeType {
+  TRIGGER_MESSAGE_RECEIVED
+  TRIGGER_BOOKING_CREATED
+  TRIGGER_BOOKING_STATUS_CHANGED
+  TRIGGER_MANUAL
+  ACTION_CREATE_BOOKING
+  ACTION_ADD_CRM_NOTE
+  ACTION_SEND_NOTIFICATION
+  CONDITION_IF
+  AI_GENERATE_REPLY
+}
+
+enum ExecutionStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+model Workflow {
+  id          String         @id @default(uuid())
+  workspaceId String
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  status      WorkflowStatus @default(DRAFT)
+
+  nodes      WorkflowNode[]
+  edges      WorkflowEdge[]
+  executions WorkflowExecution[]
+  versions   WorkflowVersion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, status])
+}
+
+model WorkflowNode {
+  id         String           @id @default(uuid())
+  workflowId String
+  workflow   Workflow         @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  type       WorkflowNodeType
+  config     Json             @default("{}")
+  // Canvas position — unused by the engine, read by the future visual
+  // builder. Kept here now so adding the canvas later is additive.
+  positionX  Float            @default(0)
+  positionY  Float            @default(0)
+
+  outgoingEdges WorkflowEdge[] @relation("FromNode")
+  incomingEdges WorkflowEdge[] @relation("ToNode")
+
+  @@index([workflowId])
+}
+
+model WorkflowEdge {
+  id         String       @id @default(uuid())
+  workflowId String
+  workflow   Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  fromNodeId String
+  fromNode   WorkflowNode @relation("FromNode", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNodeId   String
+  toNode     WorkflowNode @relation("ToNode", fields: [toNodeId], references: [id], onDelete: Cascade)
+  // Only meaningful when fromNode is CONDITION_IF: "true" | "false".
+  // Null for every other node type (single outgoing path).
+  branch     String?
+
+  @@index([workflowId])
+  @@index([fromNodeId])
+}
+
+model WorkflowExecution {
+  id             String          @id @default(uuid())
+  workflowId     String
+  workflow       Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  status         ExecutionStatus @default(RUNNING)
+  triggerPayload Json
+  log            Json            @default("[]") // array of { nodeId, type, status, output, error, ms }
+  startedAt      DateTime        @default(now())
+  finishedAt     DateTime?
+
+  @@index([workflowId])
+  @@index([status])
+}
+
+// Back-relation to add:
+// model Workspace { ... workflows Workflow[] }
+
+// PROPOSAL — append to schema.prisma (not yet applied)
+//
+// This is the honest, groundable slice of Part 6's "Marketplace" spec:
+// reusable Workflow Templates (explicitly named in the doc: Customer
+// Support, Payment Reminder, Missed Appointment...). What's NOT here on
+// purpose — app review process, revenue splitting, paid third-party
+// apps — needs real business decisions (review policy, take-rate %,
+// payment provider for marketplace transactions) that aren't technical
+// gaps to fill in, they're policy choices for the business to make.
+//
+// Visibility default: workspaceId nullable + isOfficial flag.
+//   workspaceId = null, isOfficial = true  -> built-in starter templates, visible to everyone
+//   workspaceId = X,    isOfficial = false -> that workspace's own saved templates, private to them
+// No public "share my template with every other business" path exists
+// yet — that's a real privacy decision (a saved template can embed a
+// business's actual notification wording, AI prompts, etc.) left
+// unmade rather than defaulted to "public" without asking.
+
+model WorkflowTemplate {
+  id            String     @id @default(uuid())
+  workspaceId   String?    // null = official/built-in
+  workspace     Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?
+  category      String     // "customer_support", "payment_reminder", "missed_appointment"... free text, same reasoning as WorkspaceFeature.key
+  isOfficial    Boolean    @default(false)
+  graphSnapshot Json       // { nodes: [...], edges: [...] } — same shape as a real Workflow, minus resolved workspace-specific IDs
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([category])
+}
+
+// Back-relation to add:
+// model Workspace { ... workflowTemplates WorkflowTemplate[] }
